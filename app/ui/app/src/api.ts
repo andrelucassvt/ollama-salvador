@@ -83,7 +83,9 @@ export async function fetchConnectUrl(): Promise<string> {
   if (response.status === 401) {
     const data = await response.json();
     if (data.signin_url) {
-      return data.signin_url;
+      const connectUrl = new URL(data.signin_url);
+      connectUrl.searchParams.set("launch", "true");
+      return connectUrl.toString();
     }
   }
 
