@@ -14,7 +14,7 @@ import (
 
 // currentSchemaVersion defines the current database schema version.
 // Increment this when making schema changes that require migrations.
-const currentSchemaVersion = 17
+const currentSchemaVersion = 18
 
 // database wraps the SQLite connection.
 // SQLite handles its own locking for concurrent access:
@@ -281,6 +281,13 @@ func (db *database) migrate() error {
 				return fmt.Errorf("migrate v16 to v17: %w", err)
 			}
 			version = 17
+		case 17:
+			// repair installs that reached schema_version 17 via a migration
+			// that predated onboarding_version, leaving the column missing
+			if err := db.migrateV17ToV18(); err != nil {
+				return fmt.Errorf("migrate v17 to v18: %w", err)
+			}
+			version = 18
 		default:
 			// If we have a version we don't recognize, just set it to current
 			// This might happen during development
@@ -571,6 +578,25 @@ func (db *database) migrateV16ToV17() error {
 	}
 
 	_, err = db.conn.Exec(`UPDATE settings SET onboarding_version = 1, last_home_view = 'chat', schema_version = 17`)
+	if err != nil {
+		return fmt.Errorf("complete onboarding for existing users: %w", err)
+	}
+
+	return nil
+}
+
+// migrateV17ToV18 repairs installs whose database reached schema_version 17
+// through a migration that predated onboarding_version (see the local
+// project_dir/recent_projects history), so the column was never added. This
+// is a no-op for databases that already have the column from the proper
+// migrateV16ToV17 path.
+func (db *database) migrateV17ToV18() error {
+	_, err := db.conn.Exec(`ALTER TABLE settings ADD COLUMN onboarding_version INTEGER NOT NULL DEFAULT 0`)
+	if err != nil && !duplicateColumnError(err) {
+		return fmt.Errorf("add onboarding_version column: %w", err)
+	}
+
+	_, err = db.conn.Exec(`UPDATE settings SET onboarding_version = 1, last_home_view = 'chat', schema_version = 18`)
 	if err != nil {
 		return fmt.Errorf("complete onboarding for existing users: %w", err)
 	}
